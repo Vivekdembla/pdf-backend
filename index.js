@@ -17,38 +17,41 @@ const upload = multer({ dest: "uploads/" });
 
 // Upload and process the PDF
 app.post("/upload-template", upload.single("pdf"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const filePath = req.file.path;
+    const pdfBytes = fs.readFileSync(filePath);
+    const pdfData = await pdfParse(pdfBytes);
+    const textContent = pdfData.text;
+
+    // Extract placeholders (assuming placeholders are in {{key}} format)
+    const placeholderRegex = /{{(.*?)}}/g;
+    const placeholders = new Set();
+    let match;
+    while ((match = placeholderRegex.exec(textContent)) !== null) {
+      placeholders.add(match[1]);
+    }
+
+    res.json({
+      message: "File uploaded successfully",
+      filePath,
+      placeholders: Array.from(placeholders),
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to upload PDF template" });
   }
-
-  const filePath = req.file.path;
-  const pdfBytes = fs.readFileSync(filePath);
-  const pdfData = await pdfParse(pdfBytes);
-  const textContent = pdfData.text;
-
-  // Extract placeholders (assuming placeholders are in {{key}} format)
-  const placeholderRegex = /{{(.*?)}}/g;
-  const placeholders = new Set();
-  let match;
-  while ((match = placeholderRegex.exec(textContent)) !== null) {
-    placeholders.add(match[1]);
-  }
-
-  res.json({
-    message: "File uploaded successfully",
-    filePath,
-    placeholders: Array.from(placeholders),
-  });
 });
 
 // Replace placeholders and generate final PDF
 app.post("/generate-pdf", async (req, res) => {
-  const { filePath, data } = req.body;
-  if (!filePath || !data) {
-    return res.status(400).json({ error: "Missing required parameters" });
-  }
-
   try {
+    const { filePath, data } = req.body;
+    if (!filePath || !data) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
     const pdfBytes = fs.readFileSync(filePath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -71,7 +74,7 @@ app.post("/generate-pdf", async (req, res) => {
     let text = pdfData.text;
     Object.entries(data).forEach(([key, value]) => {
       const placeholder = `{{${key}}}`;
-      text = text.replace(placeholder, value);
+      text = text.replaceAll(placeholder, value);
     });
 
     // Redraw modified text
@@ -99,10 +102,14 @@ app.post("/generate-pdf", async (req, res) => {
 
 // Serve the processed PDF for download
 app.get("/download-pdf", (req, res) => {
-  const outputFilePath = path.join("uploads", "output.pdf");
-  res.download(outputFilePath, "processed.pdf", () => {
-    fs.unlinkSync(outputFilePath); // Delete processed PDF after download
-  });
+  try {
+    const outputFilePath = path.join("uploads", "output.pdf");
+    res.download(outputFilePath, "processed.pdf", () => {
+      fs.unlinkSync(outputFilePath); // Delete processed PDF after download
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to download PDF" });
+  }
 });
 
 app.listen(port, () => {
