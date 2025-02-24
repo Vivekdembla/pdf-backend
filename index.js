@@ -115,3 +115,67 @@ app.get("/download-pdf", (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
+
+app.post("/generate-template", async (req, res) => {
+  try {
+    console.log("Received request for template generation");
+
+    const { input } = req.body;
+    if (!input) {
+      return res.status(400).json({ error: "No text input provided" });
+    }
+
+    // Create a new PDF document
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([600, 400]); // Set page size
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontSize = 16;
+    const { width, height } = page.getSize();
+
+    // Draw text on the PDF
+    page.drawText(input, {
+      x: 50,
+      y: height - 100,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0), // Black text
+    });
+
+    console.log("Text added to PDF");
+
+    // Save the modified PDF
+    const modifiedPdfBytes = await pdfDoc.save();
+
+    // Define output file path
+    const outputDir = path.join(__dirname, "uploads");
+    const outputFilePath = path.join(outputDir, "template.pdf");
+
+    // Ensure the 'uploads' directory exists
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    // Write the modified PDF to the file system
+    fs.writeFileSync(outputFilePath, modifiedPdfBytes);
+    console.log("Template saved successfully at:", outputFilePath);
+
+    res.json({
+      message: "Template generated successfully",
+      downloadPath: `http://localhost:${port}/download-template`,
+    });
+  } catch (error) {
+    console.error("Error generating template:", error);
+    res.status(500).json({ error: "Failed to create template" });
+  }
+});
+
+app.get("/download-template", (req, res) => {
+  try {
+    const outputFilePath = path.join("uploads", "template.pdf");
+    res.download(outputFilePath, "template.pdf", () => {
+      fs.unlinkSync(outputFilePath); // Delete processed PDF after download
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to download PDF" });
+  }
+});
